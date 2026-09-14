@@ -1,0 +1,57 @@
+# One-command local dev environment: Postgres + backend + frontend.
+#   docker compose up --build
+# Then open http://localhost:5173. See README.md for the full walkthrough
+# (adding a charity, connecting Freighter, donating).
+#
+# This is a dev-mode compose file (live-reloading dev servers, no secrets
+# baked into images) -- not a production deployment manifest.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: lumenaid
+      POSTGRES_DB: lumenaid
+    ports:
+      - '5432:5432'
+    volumes:
+      - lumenaid_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      STELLAR_NETWORK: testnet
+      HORIZON_URL: https://horizon-testnet.stellar.org
+      DATABASE_URL: postgresql://postgres:lumenaid@db:5432/lumenaid
+      PORT: 4000
+      CORS_ORIGIN: http://localhost:5173
+      ADMIN_KEY: ${ADMIN_KEY:-change-me-local-dev-only}
+    ports:
+      - '4000:4000'
+    volumes:
+      - ./backend/src:/app/src
+    command: sh -c "npm run db:init && npm run dev"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:4000
+      VITE_STELLAR_NETWORK: testnet
+      VITE_HORIZON_URL: https://horizon-testnet.stellar.org
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+
+volumes:
+  lumenaid_db_data:

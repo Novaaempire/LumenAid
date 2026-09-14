@@ -39,7 +39,27 @@ frontend/   React + Vite + Tailwind — wallet connect, donate flow, charity pro
 
 ## Setup
 
-### 1. Database
+### Option A: Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Starts Postgres, the backend, and the frontend together, wired up with matching defaults.
+Open http://localhost:5173. The `ADMIN_KEY` defaults to `change-me-local-dev-only`
+(override with `ADMIN_KEY=... docker compose up --build` for anything beyond a quick local
+run).
+
+> This compose file builds and each service starts correctly, but full container-to-container
+> connectivity (backend → Postgres over the compose network) wasn't verified in the sandbox
+> this MVP was built in — it restricted inter-container networking in a way a normal Docker
+> install doesn't. If `docker compose up` doesn't come up cleanly for you, please open an
+> issue; Option B below is the fully verified path (tested end-to-end against live Stellar
+> testnet).
+
+### Option B: Manual (verified end-to-end)
+
+**1. Database**
 
 ```bash
 docker run --name lumenaid-db -e POSTGRES_PASSWORD=lumenaid -e POSTGRES_DB=lumenaid -p 5432:5432 -d postgres:16
@@ -47,7 +67,7 @@ docker run --name lumenaid-db -e POSTGRES_PASSWORD=lumenaid -e POSTGRES_DB=lumen
 
 (Or point `DATABASE_URL` at any Postgres instance you already have.)
 
-### 2. Backend
+**2. Backend**
 
 ```bash
 cd backend
@@ -57,7 +77,7 @@ npm run db:init           # creates tables
 npm run dev                # http://localhost:4000
 ```
 
-### 3. Frontend
+**3. Frontend**
 
 ```bash
 cd frontend
@@ -68,11 +88,13 @@ npm run dev                # http://localhost:5173
 
 Open http://localhost:5173.
 
-### 4. Try the full loop
+### Try the full loop
 
 1. Go to **Admin** (`/admin`), enter the admin key from `backend/.env` (`ADMIN_KEY`), and
-   add a charity with a real testnet wallet address (a `G...` public key funded via
-   [Friendbot](https://laboratory.stellar.org/#account-creator?network=test)).
+   add a charity with a real testnet wallet address (a `G...` public key — Friendbot-fund it
+   at [laboratory.stellar.org](https://laboratory.stellar.org/#account-creator?network=test)
+   if it doesn't exist on the ledger yet; if you skip this, LumenAid will create the account
+   for you on the first donation — see [Handling a brand-new wallet](#handling-a-brand-new-wallet) below).
 2. Go to that charity's profile, click **Connect Freighter Wallet** (make sure Freighter is
    set to Testnet and funded), pick an amount, and donate.
 3. Approve the transaction in the Freighter popup. Once submitted, the confirmation shows
@@ -80,8 +102,8 @@ Open http://localhost:5173.
    (polled from Horizon every 15s) with a **Verify on Stellar** link to Stellar Expert.
 
 This loop (wallet connect → build tx → sign in Freighter → submit to Horizon → read back via
-Horizon → link to a public explorer) has been verified against live Stellar Testnet as part
-of building this MVP — see [Feature status](#feature-status) below.
+Horizon → link to a public explorer), plus every edge case documented below, has been
+verified against **live Stellar testnet** — not mocked — as part of building this MVP.
 
 ## Environment variables
 
@@ -89,12 +111,12 @@ of building this MVP — see [Feature status](#feature-status) below.
 
 | Variable | Description |
 |---|---|
-| `STELLAR_NETWORK` | `testnet` for MVP. Do not point at `public` (mainnet). |
+| `STELLAR_NETWORK` | `testnet` for MVP. The backend refuses to start if this is `public`. |
 | `HORIZON_URL` | `https://horizon-testnet.stellar.org` |
-| `DATABASE_URL` | Postgres connection string |
+| `DATABASE_URL` | Postgres connection string. Required — the backend fails fast at startup if missing. |
 | `PORT` | Backend port (default `4000`) |
 | `CORS_ORIGIN` | Frontend origin allowed to call the API (default `http://localhost:5173`) |
-| `ADMIN_KEY` | Shared secret required (as `x-admin-key` header) to add/verify charities. **Not real auth** — good enough for an MVP admin gate, nothing more. Change it before showing this to anyone. |
+| `ADMIN_KEY` | Shared secret required (as `x-admin-key` header, compared in constant time) to add/verify charities. **Not real auth** — good enough for an MVP admin gate, nothing more. Change it before showing this to anyone. Required — the backend fails fast at startup if missing. |
 
 ### `frontend/.env`
 
@@ -115,15 +137,49 @@ keeps it only in `sessionStorage`.
 | Charity onboarding (name, mission, wallet, category) via Admin UI | ✅ Working |
 | Manual admin verification flag (no KYC) | ✅ Working |
 | Public charity profile (wallet address, total received, history) | ✅ Working |
-| Freighter wallet connect | ✅ Working |
+| Freighter wallet connect, with a live network re-check before every signature | ✅ Working |
 | Send XLM payment, signed client-side, submitted to testnet | ✅ Working, verified end-to-end against live testnet |
-| Live donation feed from Horizon, cached in Postgres | ✅ Working |
+| First-ever donation to a brand-new charity wallet (Stellar `createAccount`) | ✅ Working, verified against live testnet |
+| USDC donations, gated on a live trustline check (backend detects it via Horizon; donor can establish one in-app) | ✅ Working, verified against live testnet using the real Circle testnet USDC issuer + a self-issued test asset for the transfer mechanics |
+| Live donation feed from Horizon, cached in Postgres, cursor-paginated | ✅ Working, verified with 5+ donations across 2 pages |
+| Human-readable errors for failed transactions (underfunded, no trustline, etc.) instead of raw XDR codes | ✅ Working |
 | "Verify on Stellar" link (Stellar Expert) per transaction | ✅ Working |
 | USD-equivalent display (CoinGecko price feed, display only) | ✅ Working |
+| Input validation (zod), rate limiting, security headers (helmet), timing-safe admin auth | ✅ Working |
+| Docker Compose for one-command local dev | ⚠️ Builds and starts; container-to-container networking not verified in the sandbox this was built in — see [Setup](#setup) |
 | Albedo wallet support | ⏳ Not built (Freighter only for MVP) |
-| USDC / Stellar anchor support | ⏳ Not built (XLM only for MVP) |
 | Soroban escrow/disbursement contracts | ⏳ Not built — direct payment flow is sufficient for MVP |
+| Automated test suite | ⏳ Not built — verification so far is manual, scripted runs against live testnet (see below) |
 | Mainnet deployment | ❌ Out of scope — testnet only |
+
+## Handling real Stellar conditions
+
+A few things that are easy to get wrong on Stellar specifically, and how this MVP handles
+each one — all verified against live testnet, not assumed from documentation:
+
+- **A brand-new wallet doesn't exist as a ledger account yet.** Stellar requires a
+  `createAccount` operation (funded with a minimum ~1 XLM reserve), not a `payment`, to send
+  XLM to an address that's never received funds. `buildPaymentTransaction` checks whether the
+  destination exists first and uses the right operation automatically; donating a non-native
+  asset to a brand-new address is rejected client-side with a clear message, since a
+  never-funded account can't hold a trustline yet.
+- **A charity's very first "donation" may not be a real donor.** On testnet, Friendbot funds
+  accounts by literally sending them XLM via `createAccount` — which is indistinguishable
+  on-chain from a real donation. LumenAid intentionally shows it anyway rather than filtering
+  it out: doing otherwise would mean deciding which real on-chain transactions to hide, which
+  is exactly the kind of "trust me" behavior this app is built to avoid. This artifact
+  disappears on mainnet, where wallets are normally funded before being listed.
+- **Non-native assets (USDC) require a trustline on both sides.** The backend's
+  `/api/charities/:id/assets` endpoint reports which assets a charity's wallet can currently
+  receive, derived live from its actual Horizon trustlines (never a manual flag) — the UI
+  only offers USDC as a donation option when the charity's own wallet already trusts it. If
+  the donor's wallet lacks the trustline, the UI walks them through establishing one
+  (`changeTrust`, signed the same way as a donation) before letting them send.
+- **Horizon errors are XDR result codes, not sentences.** `decodeHorizonError` maps the common
+  ones (`op_underfunded`, `op_no_trust`, `tx_bad_seq`, etc.) to a message a donor can act on.
+- **The donor's Freighter network can change after connecting.** `ensureTestnet()` re-checks
+  Freighter's *live* active network immediately before every signature request, not just at
+  connect time, since nothing stops a donor from switching networks mid-session.
 
 ## Design constraints (by intent, not oversight)
 
@@ -134,11 +190,16 @@ keeps it only in `sessionStorage`.
   a system of record. If you truncate it, the next page load rebuilds it from Horizon.
 - **Testnet only.** `HORIZON_URL`/`VITE_HORIZON_URL` point at
   `horizon-testnet.stellar.org`; switching to mainnet is a deliberate, separate step this MVP
-  does not take.
+  does not take, and the backend actively refuses to start with `STELLAR_NETWORK=public`.
+- **Known-asset allowlist, not open mint support.** `KNOWN_TESTNET_ASSETS` only recognizes
+  USDC by its real Circle-issued testnet address. A charity's wallet could hold trustlines for
+  arbitrary other tokens; LumenAid doesn't surface those as donation options.
 
 ## What's next
 
 - Albedo as a second wallet option for donors without the Freighter extension
-- USDC donations via a Stellar anchor
-- Pagination / infinite scroll on the donation feed for high-volume charities
+- An automated test suite (current verification is manual scripted runs against live
+  testnet — solid for catching real Stellar-integration bugs, as it did during this build,
+  but no substitute for CI-run regression tests)
+- Confirm Docker Compose's container networking on a non-sandboxed Docker install
 - Real admin auth (the current shared-key header is MVP-only)

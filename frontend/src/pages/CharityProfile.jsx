@@ -5,8 +5,11 @@ import { api } from '../lib/api.js';
 import { useWallet } from '../context/WalletContext.jsx';
 import {
   buildPaymentTransaction,
+  buildTrustlineTransaction,
   submitSignedTransaction,
   stellarExpertAccountUrl,
+  decodeHorizonError,
+  hasTrustline,
   NETWORK_PASSPHRASE,
 } from '../lib/stellar.js';
 import DonationFeed from '../components/DonationFeed.jsx';
@@ -16,13 +19,16 @@ const PRESET_AMOUNTS = [5, 20, 100];
 
 export default function CharityProfile() {
   const { id } = useParams();
-  const { address, connect } = useWallet();
+  const { address, connect, ensureTestnet } = useWallet();
 
   const [charity, setCharity] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [acceptedAssets, setAcceptedAssets] = useState([{ code: 'XLM', issuer: null }]);
+  const [asset, setAsset] = useState({ code: 'XLM', issuer: null });
 
   const [amount, setAmount] = useState('20');
-  const [status, setStatus] = useState('idle'); // idle | signing | submitting | success | error
+  // idle | checking-trustline | needs-trustline | establishing-trustline | signing | submitting | success | error
+  const [status, setStatus] = useState('idle');
   const [statusMessage, setStatusMessage] = useState(null);
   const [lastTxHash, setLastTxHash] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -32,11 +38,50 @@ export default function CharityProfile() {
       .getCharity(id)
       .then(setCharity)
       .catch((e) => setLoadError(e.message));
+    api
+      .getAcceptedAssets(id)
+      .then((res) => setAcceptedAssets(res.acceptedAssets))
+      .catch(() => {
+        /* non-fatal: donation still works with XLM as the default */
+      });
   }, [id]);
+
+  async function ensureDonorTrustline(donorAddress) {
+    if (asset.code === 'XLM') return;
+    setStatus('checking-trustline');
+    const trusted = await hasTrustline(donorAddress, asset);
+    if (trusted) return;
+
+    setStatus('needs-trustline');
+    throw new NeedsTrustlineSignal();
+  }
+
+  async function establishTrustline() {
+    setStatus('establishing-trustline');
+    setStatusMessage(null);
+    try {
+      const donorAddress = address || (await connect());
+      await ensureTestnet();
+
+      const unsignedXdr = await buildTrustlineTransaction({ fromAddress: donorAddress, asset });
+      const { signedTxXdr, error: signErr } = await freighterApi.signTransaction(unsignedXdr, {
+        networkPassphrase: NETWORK_PASSPHRASE,
+        address: donorAddress,
+      });
+      if (signErr) throw new Error(signErr.message || 'Signing was cancelled.');
+
+      await submitSignedTransaction(signedTxXdr);
+      setStatus('idle');
+      setStatusMessage(`Trustline for ${asset.code} established. You can now donate.`);
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      setStatusMessage(decodeHorizonError(err));
+    }
+  }
 
   async function handleDonate(e) {
     e.preventDefault();
-    setStatus('signing');
     setStatusMessage(null);
     setLastTxHash(null);
 
@@ -44,15 +89,21 @@ export default function CharityProfile() {
       let donorAddress = address;
       if (!donorAddress) donorAddress = await connect();
 
+      await ensureTestnet();
+
       const numericAmount = Number(amount);
       if (!numericAmount || numericAmount <= 0) {
         throw new Error('Enter a donation amount greater than 0.');
       }
 
+      await ensureDonorTrustline(donorAddress);
+
+      setStatus('signing');
       const unsignedXdr = await buildPaymentTransaction({
         fromAddress: donorAddress,
         toAddress: charity.wallet_address,
         amount: numericAmount.toFixed(7),
+        asset,
         memo: `LumenAid:${charity.id}`,
       });
 
@@ -67,17 +118,20 @@ export default function CharityProfile() {
 
       setLastTxHash(result.hash);
       setStatus('success');
-      setStatusMessage(`Sent ${numericAmount} XLM. It should appear below within a few seconds.`);
+      setStatusMessage(`Sent ${numericAmount} ${asset.code}. It should appear below within a few seconds.`);
       setRefreshKey((k) => k + 1);
     } catch (err) {
+      if (err instanceof NeedsTrustlineSignal) return; // status already set to 'needs-trustline'
       console.error(err);
       setStatus('error');
-      setStatusMessage(err.response?.data?.extras?.result_codes?.operations?.join(', ') || err.message);
+      setStatusMessage(decodeHorizonError(err));
     }
   }
 
   if (loadError) return <p className="text-red-600">Couldn't load charity: {loadError}</p>;
   if (!charity) return <p className="text-slate-500">Loading…</p>;
+
+  const isBusy = ['checking-trustline', 'establishing-trustline', 'signing', 'submitting'].includes(status);
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
@@ -120,7 +174,30 @@ export default function CharityProfile() {
           onSubmit={handleDonate}
           className="sticky top-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
         >
-          <h2 className="text-lg font-semibold text-slate-900">Donate XLM</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Donate</h2>
+
+          {acceptedAssets.length > 1 && (
+            <div className="mt-3 flex gap-2">
+              {acceptedAssets.map((a) => (
+                <button
+                  type="button"
+                  key={a.code}
+                  onClick={() => {
+                    setAsset(a);
+                    setStatus('idle');
+                    setStatusMessage(null);
+                  }}
+                  className={`flex-1 rounded-lg border px-2 py-1.5 text-sm font-medium ${
+                    asset.code === a.code
+                      ? 'border-lumen-600 bg-lumen-50 text-lumen-700'
+                      : 'border-slate-200 text-slate-600 hover:border-lumen-300'
+                  }`}
+                >
+                  {a.code}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mt-4 flex gap-2">
             {PRESET_AMOUNTS.map((v) => (
@@ -134,7 +211,7 @@ export default function CharityProfile() {
                     : 'border-slate-200 text-slate-600 hover:border-lumen-300'
                 }`}
               >
-                {v} XLM
+                {v} {asset.code}
               </button>
             ))}
           </div>
@@ -151,16 +228,34 @@ export default function CharityProfile() {
             />
           </label>
 
-          <button
-            type="submit"
-            disabled={status === 'signing' || status === 'submitting'}
-            className="mt-4 w-full rounded-lg bg-lumen-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-lumen-700 disabled:opacity-50"
-          >
-            {status === 'signing' && 'Waiting for wallet signature…'}
-            {status === 'submitting' && 'Submitting to Stellar…'}
-            {(status === 'idle' || status === 'success' || status === 'error') &&
-              (address ? `Donate ${amount || 0} XLM` : 'Connect wallet & donate')}
-          </button>
+          {status === 'needs-trustline' ? (
+            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+              <p>
+                Your wallet doesn't have a trustline for {asset.code} yet — Stellar requires one before it
+                can receive a non-native asset. This is a one-time setup transaction, signed the same way as
+                a donation.
+              </p>
+              <button
+                type="button"
+                onClick={establishTrustline}
+                disabled={isBusy}
+                className="mt-2 w-full rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {status === 'establishing-trustline' ? 'Establishing trustline…' : `Establish ${asset.code} trustline`}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="submit"
+              disabled={isBusy}
+              className="mt-4 w-full rounded-lg bg-lumen-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-lumen-700 disabled:opacity-50"
+            >
+              {status === 'checking-trustline' && 'Checking wallet…'}
+              {status === 'signing' && 'Waiting for wallet signature…'}
+              {status === 'submitting' && 'Submitting to Stellar…'}
+              {!isBusy && (address ? `Donate ${amount || 0} ${asset.code}` : 'Connect wallet & donate')}
+            </button>
+          )}
 
           {status === 'success' && (
             <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">
@@ -177,6 +272,9 @@ export default function CharityProfile() {
           {status === 'error' && (
             <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{statusMessage}</p>
           )}
+          {status === 'idle' && statusMessage && (
+            <p className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">{statusMessage}</p>
+          )}
 
           <p className="mt-4 text-xs text-slate-400">
             Payments are signed in your Freighter wallet and sent directly to the charity's testnet
@@ -187,3 +285,8 @@ export default function CharityProfile() {
     </div>
   );
 }
+
+// Internal control-flow signal (not a real error) used to bail out of
+// handleDonate when a trustline needs to be set up first, without
+// triggering the generic error-message path.
+class NeedsTrustlineSignal extends Error {}

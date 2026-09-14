@@ -7,6 +7,7 @@ const WalletContext = createContext(null);
 export function WalletProvider({ children }) {
   const [address, setAddress] = useState(null);
   const [network, setNetwork] = useState(null);
+  const [networkPassphrase, setNetworkPassphrase] = useState(null);
   const [isFreighterInstalled, setIsFreighterInstalled] = useState(null);
   const [error, setError] = useState(null);
   const [connecting, setConnecting] = useState(false);
@@ -25,7 +26,10 @@ export function WalletProvider({ children }) {
           const { address: addr, error: addrErr } = await freighterApi.getAddress();
           if (!addrErr && addr) setAddress(addr);
           const netInfo = await freighterApi.getNetwork();
-          if (!netInfo.error) setNetwork(netInfo.network);
+          if (!netInfo.error) {
+            setNetwork(netInfo.network);
+            setNetworkPassphrase(netInfo.networkPassphrase);
+          }
         }
       } catch {
         setIsFreighterInstalled(false);
@@ -52,6 +56,7 @@ export function WalletProvider({ children }) {
 
       setAddress(addr);
       setNetwork(netInfo.network);
+      setNetworkPassphrase(netInfo.networkPassphrase);
 
       if (netInfo.networkPassphrase !== NETWORK_PASSPHRASE) {
         setError(
@@ -72,16 +77,35 @@ export function WalletProvider({ children }) {
     // app state. Revoking access happens in the Freighter extension itself.
     setAddress(null);
     setNetwork(null);
+    setNetworkPassphrase(null);
+  }, []);
+
+  // Re-checks Freighter's *live* active network right before something
+  // security-sensitive (signing a payment). The user can switch networks in
+  // the extension at any time after connecting, so the state captured at
+  // connect-time isn't trustworthy for this -- always re-verify live.
+  const ensureTestnet = useCallback(async () => {
+    const netInfo = await freighterApi.getNetwork();
+    if (netInfo.error) throw new Error(netInfo.error.message || 'Could not read wallet network.');
+    setNetwork(netInfo.network);
+    setNetworkPassphrase(netInfo.networkPassphrase);
+    if (netInfo.networkPassphrase !== NETWORK_PASSPHRASE) {
+      throw new Error(
+        `Freighter is set to "${netInfo.network}", but this app only supports Stellar Testnet. Switch networks in Freighter and try again.`
+      );
+    }
   }, []);
 
   const value = {
     address,
     network,
+    networkPassphrase,
     isFreighterInstalled,
     connecting,
     error,
     connect,
     disconnect,
+    ensureTestnet,
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

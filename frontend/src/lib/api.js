@@ -19,7 +19,14 @@ export const api = {
   listCharities: (verified) =>
     request(`/api/charities${verified !== undefined ? `?verified=${verified}` : ''}`),
   getCharity: (id) => request(`/api/charities/${id}`),
-  getDonations: (id) => request(`/api/charities/${id}/donations`),
+  getDonations: (id, { limit, before } = {}) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', limit);
+    if (before) params.set('before', before);
+    const qs = params.toString();
+    return request(`/api/charities/${id}/donations${qs ? `?${qs}` : ''}`);
+  },
+  getAcceptedAssets: (id) => request(`/api/charities/${id}/assets`),
   createCharity: (payload, adminKey) =>
     request('/api/charities', {
       method: 'POST',
