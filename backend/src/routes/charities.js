@@ -1,14 +1,10 @@
 import { Router } from 'express';
-import { StrKey } from '@stellar/stellar-sdk';
 import { query } from '../db.js';
 import { requireAdmin } from '../adminAuth.js';
 import { asyncHandler } from '../asyncHandler.js';
+import { createCharitySchema, verifySchema, validateBody } from '../validation.js';
 
 export const charitiesRouter = Router();
-
-function isValidStellarAddress(address) {
-  return typeof address === 'string' && StrKey.isValidEd25519PublicKey(address);
-}
 
 // GET /api/charities - public list (query ?verified=true to filter)
 charitiesRouter.get('/', asyncHandler(async (req, res) => {
@@ -35,22 +31,15 @@ charitiesRouter.get('/:id', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/charities - admin only: onboard a new charity
-charitiesRouter.post('/', requireAdmin, asyncHandler(async (req, res) => {
-  const { name, mission, category, walletAddress, verified } = req.body || {};
-
-  if (!name || !mission || !walletAddress) {
-    return res.status(400).json({ error: 'name, mission, and walletAddress are required' });
-  }
-  if (!isValidStellarAddress(walletAddress)) {
-    return res.status(400).json({ error: 'walletAddress is not a valid Stellar public key (G...)' });
-  }
+charitiesRouter.post('/', requireAdmin, validateBody(createCharitySchema), asyncHandler(async (req, res) => {
+  const { name, mission, category, walletAddress, verified } = req.body;
 
   try {
     const { rows } = await query(
       `INSERT INTO charities (name, mission, category, wallet_address, verified)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [name, mission, category || 'general', walletAddress, !!verified]
+      [name, mission, category, walletAddress, verified]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -62,11 +51,8 @@ charitiesRouter.post('/', requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 // PATCH /api/charities/:id/verify - admin only: toggle manual verification flag
-charitiesRouter.patch('/:id/verify', requireAdmin, asyncHandler(async (req, res) => {
-  const { verified } = req.body || {};
-  if (typeof verified !== 'boolean') {
-    return res.status(400).json({ error: 'verified (boolean) is required' });
-  }
+charitiesRouter.patch('/:id/verify', requireAdmin, validateBody(verifySchema), asyncHandler(async (req, res) => {
+  const { verified } = req.body;
   const { rows } = await query(
     'UPDATE charities SET verified = $1 WHERE id = $2 RETURNING *',
     [verified, req.params.id]

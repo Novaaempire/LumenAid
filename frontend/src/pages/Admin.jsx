@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { StrKey } from '@stellar/stellar-sdk';
 import { api } from '../lib/api.js';
 
 const CATEGORIES = ['humanitarian', 'health', 'education', 'environment', 'disaster-relief', 'general'];
@@ -37,9 +38,17 @@ export default function Admin() {
   async function handleSubmit(e) {
     e.preventDefault();
     setFormError(null);
+
+    // Catch a malformed address before round-tripping to the backend --
+    // same check the backend runs, just faster feedback.
+    if (!StrKey.isValidEd25519PublicKey(form.walletAddress.trim())) {
+      setFormError('That doesn\'t look like a valid Stellar public key. It should start with "G" and be 56 characters.');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await api.createCharity(form, adminKey);
+      await api.createCharity({ ...form, walletAddress: form.walletAddress.trim() }, adminKey);
       setForm({ name: '', mission: '', category: CATEGORIES[0], walletAddress: '', verified: false });
       loadCharities();
     } catch (err) {
