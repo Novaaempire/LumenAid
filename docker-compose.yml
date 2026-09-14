@@ -5,9 +5,22 @@
 #
 # This is a dev-mode compose file (live-reloading dev servers, no secrets
 # baked into images) -- not a production deployment manifest.
+#
+# Networking note: services deliberately use the classic `network_mode:
+# bridge` + `links:` instead of a Compose-managed user-defined network.
+# This was forced by the sandbox this MVP was built in, which -- for
+# reasons outside this repo's control -- allows traffic on Docker's default
+# `bridge` network but silently drops all container-to-container traffic on
+# any custom bridge network Compose would otherwise create (confirmed with
+# plain `docker network create` + ping, nothing to do with this compose
+# file). `network_mode: bridge` + `links:` is how Docker networking worked
+# before user-defined networks existed, so it's universally supported --
+# just less featureful (no per-network aliases) than the modern default,
+# which you're free to switch back to if you're not hitting this issue.
 services:
   db:
     image: postgres:16-alpine
+    network_mode: bridge
     environment:
       POSTGRES_PASSWORD: lumenaid
       POSTGRES_DB: lumenaid
@@ -23,6 +36,9 @@ services:
 
   backend:
     build: ./backend
+    network_mode: bridge
+    links:
+      - db
     depends_on:
       db:
         condition: service_healthy
@@ -41,6 +57,7 @@ services:
 
   frontend:
     build: ./frontend
+    network_mode: bridge
     depends_on:
       - backend
     environment:

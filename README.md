@@ -48,16 +48,12 @@ docker compose up --build
 Starts Postgres, the backend, and the frontend together, wired up with matching defaults.
 Open http://localhost:5173. The `ADMIN_KEY` defaults to `change-me-local-dev-only`
 (override with `ADMIN_KEY=... docker compose up --build` for anything beyond a quick local
-run).
+run). Verified end-to-end (DB persistence, backend ↔ Postgres, live Horizon queries all the
+way through) — see [the networking note](#a-docker-networking-note) if you're curious why the
+compose file uses `network_mode: bridge` + `links:` instead of the usual Compose-managed
+network.
 
-> This compose file builds and each service starts correctly, but full container-to-container
-> connectivity (backend → Postgres over the compose network) wasn't verified in the sandbox
-> this MVP was built in — it restricted inter-container networking in a way a normal Docker
-> install doesn't. If `docker compose up` doesn't come up cleanly for you, please open an
-> issue; Option B below is the fully verified path (tested end-to-end against live Stellar
-> testnet).
-
-### Option B: Manual (verified end-to-end)
+### Option B: Manual
 
 **1. Database**
 
@@ -146,7 +142,7 @@ keeps it only in `sessionStorage`.
 | "Verify on Stellar" link (Stellar Expert) per transaction | ✅ Working |
 | USD-equivalent display (CoinGecko price feed, display only) | ✅ Working |
 | Input validation (zod), rate limiting, security headers (helmet), timing-safe admin auth | ✅ Working |
-| Docker Compose for one-command local dev | ⚠️ Builds and starts; container-to-container networking not verified in the sandbox this was built in — see [Setup](#setup) |
+| Docker Compose for one-command local dev | ✅ Working, verified end-to-end (DB persistence, backend ↔ Postgres, live Horizon queries through the compose network) |
 | Albedo wallet support | ⏳ Not built (Freighter only for MVP) |
 | Soroban escrow/disbursement contracts | ⏳ Not built — direct payment flow is sufficient for MVP |
 | Automated test suite | ⏳ Not built — verification so far is manual, scripted runs against live testnet (see below) |
@@ -181,6 +177,18 @@ each one — all verified against live testnet, not assumed from documentation:
   Freighter's *live* active network immediately before every signature request, not just at
   connect time, since nothing stops a donor from switching networks mid-session.
 
+### A Docker networking note
+
+`docker-compose.yml` connects services with the classic `network_mode: bridge` + `links:`
+instead of letting Compose create its usual user-defined network. This was forced by the
+sandbox this MVP was built in: Docker's default `bridge` network worked fine, but any
+custom/user-defined bridge network silently dropped all container-to-container traffic
+(confirmed directly with `docker network create` + `ping`, independent of this compose file
+or anything backend/frontend-specific). `network_mode: bridge` + `links:` is how Docker
+networking worked before user-defined networks existed, so it's universally supported — you
+lose per-network service aliases, which this file doesn't use anyway. If you're not hitting
+that restriction, a standard `networks:` block works too.
+
 ## Design constraints (by intent, not oversight)
 
 - **No custody.** The backend never sees a private key and never signs a transaction. All
@@ -201,5 +209,4 @@ each one — all verified against live testnet, not assumed from documentation:
 - An automated test suite (current verification is manual scripted runs against live
   testnet — solid for catching real Stellar-integration bugs, as it did during this build,
   but no substitute for CI-run regression tests)
-- Confirm Docker Compose's container networking on a non-sandboxed Docker install
 - Real admin auth (the current shared-key header is MVP-only)
