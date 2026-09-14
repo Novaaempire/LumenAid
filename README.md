@@ -1,115 +1,144 @@
-🌍 Crypto-Powered Donation Platform
-> A transparent, borderless charitable giving platform built on the **Stellar Network** — connecting donors worldwide to verified charities with full on-chain accountability.
-![Built on Stellar](https://img.shields.io/badge/Built%20on-Stellar-7D00FF?style=flat-square)
-[![Network](https://img.shields.io/badge/Network-Testnet-orange?style=flat-square)]()
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)]()
-[![Status](https://img.shields.io/badge/status-In%20Development-yellow?style=flat-square)]()
----
-📖 Overview
-Traditional charitable giving suffers from a trust gap — donors rarely know exactly how their money is used, and charities lose significant value to intermediaries and slow cross-border payment rails.
-The Crypto-Powered Donation Platform solves this by using Stellar's public ledger to make every donation traceable, verifiable, and near-instant — anywhere in the world, at a fraction of traditional transaction costs.
----
-✨ Features
-Feature	Description
-🔍 Transparent Donation Tracking	Every donation is recorded on-chain and traceable from wallet to disbursement.
-✅ Public Ledger Verification	Anyone can independently verify transactions via Stellar's public ledger — no intermediary required.
-🏥 Charity Profiles	Verified organizations get dedicated profiles with mission statements, funding goals, and donation history.
-🌍 Global Donations	Donors anywhere can contribute in seconds, using Stellar's fast, low-cost payment rails.
-💱 Multi-Asset Support	Accepts XLM, USDC, and other Stellar-issued assets.
-📊 Real-Time Dashboards	Live donation stats and fund-utilization tracking for donors and charities alike.
----
-🛠️ Tech Stack
-Blockchain
-Stellar Network — settlement layer
-Soroban — smart contracts for escrow & disbursement logic
-Horizon API — transaction data & ledger queries
-Stellar SDK (JS / Python)
-Backend
-Node.js / Express (or your framework)
-PostgreSQL / MongoDB (database)
-Frontend
-React.js
-Tailwind CSS
-Infrastructure
-Stellar Testnet (development) → Mainnet (production)
-IPFS (optional — for charity documents/media)
-> ℹ️ Update this section with your actual stack once finalized — investors and reviewers will check this against your codebase.
----
-🏗️ Architecture
-```
-Donor Wallet ──► Stellar Network ──► Smart Contract (Soroban) ──► Charity Wallet
-                       │
-                       ▼
-              Horizon API (indexing)
-                       │
-                       ▼
-              Backend ──► Frontend Dashboard
-```
-(Replace with an actual diagram — e.g. exported from Excalidraw, Figma, or draw.io — before publishing.)
----
-🚀 Getting Started
-Prerequisites
-Node.js >= 18.x
-npm or yarn
-A Stellar testnet account (create one via Friendbot)
-Installation
-```bash
-# Clone the repository
-git clone https://github.com/your-username/crypto-donation-platform.git
-cd crypto-donation-platform
+# 🌍 LumenAid — Crypto-Powered Donation Platform (MVP)
 
-# Install dependencies
+A transparent, borderless donation platform on the **Stellar Network**. Donors send funds
+straight to verified charities' wallets; every donation is publicly traceable on the Stellar
+ledger via the Horizon API — no "trust me" numbers from a backend.
+
+Currently wired up end-to-end against **Stellar Testnet**.
+
+## How it works
+
+```
+Donor's Freighter wallet ──sign──► Stellar Testnet ──payment──► Charity wallet
+                                          │
+                                          ▼
+                                   Horizon API (public ledger data)
+                                          │
+                                          ▼
+                     Backend (cache only) ──► Frontend (charity pages, live feed)
+```
+
+The backend **never holds funds or private keys**. Every payment is built client-side,
+signed in the donor's Freighter wallet, and submitted directly to Horizon. The backend's
+only jobs are (1) storing public charity metadata (name, mission, wallet address, verified
+flag) and (2) caching Horizon query results so pages don't re-hit Horizon on every load.
+
+## Repo layout
+
+```
+backend/    Node.js + Express + PostgreSQL — charity metadata & Horizon cache
+frontend/   React + Vite + Tailwind — wallet connect, donate flow, charity profiles, admin
+```
+
+## Prerequisites
+
+- Node.js >= 18
+- PostgreSQL (or Docker, to run one locally — see below)
+- [Freighter wallet](https://www.freighter.app/) browser extension, set to **Testnet**,
+  funded via [Friendbot](https://laboratory.stellar.org/#account-creator?network=test)
+
+## Setup
+
+### 1. Database
+
+```bash
+docker run --name lumenaid-db -e POSTGRES_PASSWORD=lumenaid -e POSTGRES_DB=lumenaid -p 5432:5432 -d postgres:16
+```
+
+(Or point `DATABASE_URL` at any Postgres instance you already have.)
+
+### 2. Backend
+
+```bash
+cd backend
+cp .env.example .env      # defaults match the docker command above
 npm install
+npm run db:init           # creates tables
+npm run dev                # http://localhost:4000
+```
 
-# Set up environment variables
-cp .env.example .env
-```
-Configuration
-Add the following to your `.env` file:
-```env
-STELLAR_NETWORK=testnet
-HORIZON_URL=https://horizon-testnet.stellar.org
-SOROBAN_CONTRACT_ID=your_contract_id_here
-DATABASE_URL=your_database_url_here
-```
-Run Locally
+### 3. Frontend
+
 ```bash
-npm run dev
+cd frontend
+cp .env.example .env
+npm install
+npm run dev                # http://localhost:5173
 ```
-The app should now be running at `http://localhost:3000`.
----
-📸 Screenshots
-Home	Charity Profile	Donation Tracker
-add screenshot	add screenshot	add screenshot
-> Add real screenshots or a short demo GIF here — this is often the first thing investors and reviewers look at.
----
-🗺️ Roadmap
-[x] Concept & architecture design
-[x] Stellar testnet integration
-[ ] Soroban smart contract for donation escrow
-[ ] Charity verification & onboarding flow
-[ ] Public donation tracking dashboard
-[ ] Multi-asset support (XLM, USDC, NGNC)
-[ ] Mainnet deployment
-[ ] Third-party charity verification partnerships
-[ ] Mobile app (iOS/Android)
----
-🔒 Security & Trust
-All donation transactions are publicly verifiable on the Stellar ledger.
-Charity wallets are verified before onboarding.
-(Add details on audits, multisig wallets, or escrow logic once implemented.)
----
-🤝 Contributing
-Contributions are welcome! Please open an issue to discuss proposed changes before submitting a pull request.
-Fork the repo
-Create your feature branch (`git checkout -b feature/amazing-feature`)
-Commit your changes (`git commit -m 'Add amazing feature'`)
-Push to the branch (`git push origin feature/amazing-feature`)
-Open a Pull Request
----
-📄 License
-This project is licensed under the MIT License — see the LICENSE file for details.
----
-📬 Contact
-Isaac — GitHub · Twitter/X · Email
-Project Link: https://github.com/your-username/crypto-donation-platform
+
+Open http://localhost:5173.
+
+### 4. Try the full loop
+
+1. Go to **Admin** (`/admin`), enter the admin key from `backend/.env` (`ADMIN_KEY`), and
+   add a charity with a real testnet wallet address (a `G...` public key funded via
+   [Friendbot](https://laboratory.stellar.org/#account-creator?network=test)).
+2. Go to that charity's profile, click **Connect Freighter Wallet** (make sure Freighter is
+   set to Testnet and funded), pick an amount, and donate.
+3. Approve the transaction in the Freighter popup. Once submitted, the confirmation shows
+   the transaction hash immediately, and the donation appears in the live history feed below
+   (polled from Horizon every 15s) with a **Verify on Stellar** link to Stellar Expert.
+
+This loop (wallet connect → build tx → sign in Freighter → submit to Horizon → read back via
+Horizon → link to a public explorer) has been verified against live Stellar Testnet as part
+of building this MVP — see [Feature status](#feature-status) below.
+
+## Environment variables
+
+### `backend/.env`
+
+| Variable | Description |
+|---|---|
+| `STELLAR_NETWORK` | `testnet` for MVP. Do not point at `public` (mainnet). |
+| `HORIZON_URL` | `https://horizon-testnet.stellar.org` |
+| `DATABASE_URL` | Postgres connection string |
+| `PORT` | Backend port (default `4000`) |
+| `CORS_ORIGIN` | Frontend origin allowed to call the API (default `http://localhost:5173`) |
+| `ADMIN_KEY` | Shared secret required (as `x-admin-key` header) to add/verify charities. **Not real auth** — good enough for an MVP admin gate, nothing more. Change it before showing this to anyone. |
+
+### `frontend/.env`
+
+| Variable | Description |
+|---|---|
+| `VITE_API_URL` | Backend URL, e.g. `http://localhost:4000` |
+| `VITE_STELLAR_NETWORK` | `testnet` |
+| `VITE_HORIZON_URL` | `https://horizon-testnet.stellar.org` |
+
+There is intentionally no `VITE_ADMIN_KEY` — baking the admin secret into the frontend build
+would ship it in the public JS bundle. The Admin page asks for the key at runtime instead and
+keeps it only in `sessionStorage`.
+
+## Feature status
+
+| Feature | Status |
+|---|---|
+| Charity onboarding (name, mission, wallet, category) via Admin UI | ✅ Working |
+| Manual admin verification flag (no KYC) | ✅ Working |
+| Public charity profile (wallet address, total received, history) | ✅ Working |
+| Freighter wallet connect | ✅ Working |
+| Send XLM payment, signed client-side, submitted to testnet | ✅ Working, verified end-to-end against live testnet |
+| Live donation feed from Horizon, cached in Postgres | ✅ Working |
+| "Verify on Stellar" link (Stellar Expert) per transaction | ✅ Working |
+| USD-equivalent display (CoinGecko price feed, display only) | ✅ Working |
+| Albedo wallet support | ⏳ Not built (Freighter only for MVP) |
+| USDC / Stellar anchor support | ⏳ Not built (XLM only for MVP) |
+| Soroban escrow/disbursement contracts | ⏳ Not built — direct payment flow is sufficient for MVP |
+| Mainnet deployment | ❌ Out of scope — testnet only |
+
+## Design constraints (by intent, not oversight)
+
+- **No custody.** The backend never sees a private key and never signs a transaction. All
+  signing happens in the donor's Freighter extension.
+- **No trust-me numbers.** Every stat shown (totals, history) is derived from a live Horizon
+  query; the Postgres table is a cache with a `UNIQUE (charity_id, tx_hash)` constraint, not
+  a system of record. If you truncate it, the next page load rebuilds it from Horizon.
+- **Testnet only.** `HORIZON_URL`/`VITE_HORIZON_URL` point at
+  `horizon-testnet.stellar.org`; switching to mainnet is a deliberate, separate step this MVP
+  does not take.
+
+## What's next
+
+- Albedo as a second wallet option for donors without the Freighter extension
+- USDC donations via a Stellar anchor
+- Pagination / infinite scroll on the donation feed for high-volume charities
+- Real admin auth (the current shared-key header is MVP-only)
